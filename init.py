@@ -99,6 +99,7 @@ class KleafBootstrap:
             prefix="init_ddk_", suffix=".zip", mode="w+b"
         ) as init_ddk:
             self._download_artifact("init_ddk.zip", init_ddk)
+            init_ddk.flush()
             args = ["python3", init_ddk.name]
             # Do not add --branch, because its meaning may change during the
             # process of this script.

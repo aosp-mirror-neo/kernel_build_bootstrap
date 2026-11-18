@@ -19,8 +19,10 @@ import io
 import json
 import os
 import pathlib
+import tempfile
 import unittest
 from typing import Generator
+import zipfile
 
 from init import (KleafBootstrap, _API_ENDPOINT_PREFIX,
                   _ARTIFACT_URL_FMT, _DEFAULT_BUILD_TARGET)
@@ -91,6 +93,47 @@ class KleafBootstrapTest(unittest.TestCase):
                     url_fmt=_ARTIFACT_URL_FMT,
                 ), ["-h"])
                 obj.run()
+
+
+class KleafBootstrapLocalTest(unittest.TestCase):
+
+    def test_flushes_init_ddk_zip_before_running(self):
+        """Verifies init_ddk.zip is flushed to disk before python3 executes it.
+
+        When the zip size mod 65536 falls in (0, 8192), the final chunk written
+        by shutil.copyfileobj() stays buffered in NamedTemporaryFile unless
+        flushed, truncating the ZIP End-of-Central-Directory record.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = pathlib.Path(tmp)
+            zip_path = tmp_path / "init_ddk.zip"
+            target_size = 65536 + 585
+
+            with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_STORED) as zf:
+                zf.writestr("__main__.py", "import sys\nsys.exit(0)\n")
+                zf.writestr("pad.bin", b"")
+            overhead = zip_path.stat().st_size
+            pad_len = target_size - overhead
+            self.assertGreater(pad_len, 0)
+
+            with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_STORED) as zf:
+                zf.writestr("__main__.py", "import sys\nsys.exit(0)\n")
+                zf.writestr("pad.bin", b"0" * pad_len)
+            self.assertEqual(zip_path.stat().st_size, target_size)
+
+            obj = KleafBootstrap(
+                argparse.Namespace(
+                    branch=None,
+                    build_target=_DEFAULT_BUILD_TARGET,
+                    build_id="12345",
+                    ddk_workspace=tmp_path,
+                    kleaf_repo=None,
+                    local=False,
+                    url_fmt=f"file://{tmp_path}/{{filename}}",
+                ),
+                [],
+            )
+            obj.run()
 
 
 if __name__ == "__main__":
